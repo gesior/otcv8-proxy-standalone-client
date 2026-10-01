@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "otcv8-proxy-standalone-client",
+  "version": "1.0.0",
+  "description": "OTClientV8 Proxy Standalone Client",
+  "dependencies": [
+    "boost-asio",
+    "boost-system",
+    "gmp",
+    "zlib"
+  ],
+  "builtin-baseline": "0cf34c184ce990471435b5b9c92edcf7424930b1"
+}

@@ -8,6 +8,8 @@
 #include <tlhelp32.h>
 #include <Shlwapi.h>
 #include <shellapi.h>
+#include <gdiplus.h>
+#pragma comment(lib, "gdiplus.lib")
 #endif
 
 #include <fstream>
@@ -16,7 +18,7 @@ extern std::set<std::shared_ptr<Proxy>> g_proxies;
 
 #define APPLICATION_INSTANCE_MUTEX_NAME "{MY-OTS-PROXY-INSTANCE-MUTEX}"
 
-ProxyClientServer s;
+ProxyClientServer proxyClientServer;
 
 struct ProxyData {
     std::string host;
@@ -27,6 +29,7 @@ struct ProxyData {
 
 std::set<uint16_t> ports;
 std::vector<ProxyData> proxies;
+std::string server_name;
 std::string app_name;
 int max_connections = 2;
 
@@ -37,6 +40,11 @@ std::string loadConfig()
         return "File proxy.config not found";
     std::string line;
     while (std::getline(config, line)) {
+        if (line.empty()) continue;
+        if (server_name.empty()) {
+            server_name = line;
+            continue;
+        }
         std::istringstream iss(line);
         if (app_name.empty()) {
             iss >> app_name;
@@ -72,19 +80,21 @@ std::string loadConfig()
     if (proxies.empty())
         return "Didn't find any proxy in config";
     if (app_name.empty())
-        return "Didn't find app name to launch in config, it should be first line of config";
+        return "Didn't find app name to launch in config, it should be second line of config";
+    if (server_name.empty())
+        return "Didn't find server name in config, it should be first line of config";
     return "";
 }
 
 bool init()
 {
-    if (!s.init({ ports })) {
+    if (!proxyClientServer.init({ ports })) {
         return false;
     }
 
-    s.setMaxActiveProxyConnections(max_connections);
+    proxyClientServer.setMaxActiveProxyConnections(max_connections);
     for (auto& proxy : proxies) {
-        s.addProxy(proxy.host, proxy.ip, proxy.port, proxy.extra_ping);
+        proxyClientServer.addProxy(proxy.host, proxy.ip, proxy.port, proxy.extra_ping);
     }
     return true;
 }
@@ -107,7 +117,7 @@ int main(int argc, char** argv)
         }
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
-    s.terminate();
+    proxyClientServer.terminate();
     return 0;
 }
 #else
@@ -142,18 +152,68 @@ int error(const std::string& msg)
 
 const char WND_CLASSNAME[] = "OTCv8proxy";
 
-
-	// notify icon data
-HDC hMemoryDC;
 bool clientClosed = 0;
 
-HBITMAP hbitmap;
-BITMAP  bitmap;
+Gdiplus::Image* g_logoImage = nullptr;
+
+Gdiplus::Image* LoadPNGFromResource(HMODULE hMod, int resId) {
+    HRSRC hRes = FindResource(hMod, MAKEINTRESOURCE(resId), RT_RCDATA);
+    if (!hRes) return nullptr;
+    DWORD resSize = SizeofResource(hMod, hRes);
+    HGLOBAL hGlobal = LoadResource(hMod, hRes);
+    if (!hGlobal) return nullptr;
+    void* pRes = LockResource(hGlobal);
+
+    IStream* pStream = nullptr;
+    if (CreateStreamOnHGlobal(NULL, TRUE, &pStream) != S_OK) return nullptr;
+    pStream->Write(pRes, resSize, NULL);
+
+    Gdiplus::Image* img = Gdiplus::Image::FromStream(pStream);
+    pStream->Release();
+    return img;
+}
+
+void UpdateLayeredPNG(HWND hWnd, Gdiplus::Image* img) {
+    if (!img) return;
+
+    UINT width = img->GetWidth();
+    UINT height = img->GetHeight();
+
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+
+    BITMAPINFO bmi;
+    ZeroMemory(&bmi, sizeof(BITMAPINFO));
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = width;
+    bmi.bmiHeader.biHeight = -(int)height;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* pvBits;
+    HBITMAP hbmp = CreateDIBSection(hdcMem, &bmi, DIB_RGB_COLORS, &pvBits, NULL, 0);
+    HGDIOBJ hOldObj = SelectObject(hdcMem, hbmp);
+
+    Gdiplus::Graphics graphics(hdcMem);
+    graphics.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    graphics.DrawImage(img, 0, 0, width, height);
+
+    POINT ptSrc = { 0, 0 };
+    SIZE sizeWnd = { (LONG)width, (LONG)height };
+    BLENDFUNCTION blend = { AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+
+    UpdateLayeredWindow(hWnd, hdcScreen, NULL, &sizeWnd, hdcMem, &ptSrc, 0, &blend, ULW_ALPHA);
+
+    SelectObject(hdcMem, hOldObj);
+    DeleteObject(hbmp);
+    DeleteDC(hdcMem);
+    ReleaseDC(NULL, hdcScreen);
+}
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     static HDC hDC;
-    static HDC hMemoryDC;
     static NOTIFYICONDATAA niData;
     static bool firstTimer = true;
 
@@ -161,10 +221,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     case WM_CREATE:
     {
         hDC = GetDC(hWnd);
-        hMemoryDC = CreateCompatibleDC(hDC);
-        SelectObject(hMemoryDC, (HGDIOBJ)hbitmap);
 
-        SetTimer(hWnd, 1, 2000, NULL); // add 2000 ms timer
+        UpdateLayeredPNG(hWnd, g_logoImage);
+
+        SetTimer(hWnd, 1, 1000, NULL); // add 2000 ms timer
 
         SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE);
 
@@ -177,16 +237,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
                                         IMAGE_ICON, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON),
                                         LR_DEFAULTCOLOR);
 
-        strcpy_s(niData.szTip, "Proxy system by otclient.ovh");
+        std::string initialTip = server_name + "\nProxy system by otclient.ovh";
+        if (initialTip.length() >= sizeof(niData.szTip)) {
+            initialTip = initialTip.substr(0, sizeof(niData.szTip) - 1);
+        }
+        strcpy_s(niData.szTip, initialTip.c_str());
         Shell_NotifyIcon(NIM_ADD, &niData);
     }
     break;
 
     case WM_DESTROY:
     {
-        DeleteObject(hbitmap);
+        if (g_logoImage) delete g_logoImage;
         ReleaseDC(hWnd, hDC);
-        ReleaseDC(hWnd, hMemoryDC);
 
         KillTimer(hWnd, 1);
         Shell_NotifyIcon(NIM_DELETE, &niData);
@@ -197,8 +260,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
     case WM_ERASEBKGND:
     {
-        BitBlt((HDC)wParam, 0, 0, bitmap.bmWidth, bitmap.bmHeight, hMemoryDC, 0, 0, SRCCOPY);
-        break;
+        // For layered windows with UpdateLayeredWindow, we don't need to do anything here
+        return 1;
     }
 
     case WM_TIMER:
@@ -208,33 +271,47 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             firstTimer = false;
         }
 
+        int activeConnections = 0;
+        uint32_t lowestPing = 0xFFFFFFFF;
+        for (auto& proxy : g_proxies) {
+            if (proxy->isConnected()) {
+                activeConnections++;
+                if (proxy->isActive()) {
+                    uint32_t ping = proxy->getRealPing();
+                    if (ping < lowestPing) {
+                        lowestPing = ping;
+                    }
+                }
+            }
+        }
+
         std::stringstream info;
-        int cons = 0;
-        info << "OTClientV8 Proxy system\r\n";
-        for (auto& proxy : g_proxies) {
-            if (proxy->isConnected()) cons += 1;
+        info << server_name;
+        info << "\nConnections: " << activeConnections;
+        if (activeConnections > 0 && lowestPing != 0xFFFFFFFF) {
+            info << "\nPing: " << lowestPing << " ms";
         }
-        info << "Connections: " << cons << "\r\n";
-        for (auto& proxy : g_proxies) {
-            if (!proxy->isActive()) continue;
-            info << proxy->getHost() << " " << proxy->getRealPing() << " ms\r\n";
-        }
+        
         std::string infostr = info.str();
-        if (infostr.length() + 1 >= sizeof(niData.szTip)) {
+        if (infostr.length() >= sizeof(niData.szTip)) {
             infostr = infostr.substr(0, sizeof(niData.szTip) - 1);
         }
         strcpy_s(niData.szTip, infostr.c_str());
         Shell_NotifyIcon(NIM_MODIFY, &niData);
-        auto f = app_name.find("\\");
+
+        std::string checkName = app_name;
+        auto f = checkName.find_last_of("\\/");
         if (f != std::string::npos) {
-            app_name = app_name.substr(f + 1);
+            checkName = checkName.substr(f + 1);
         }
-        if (!isProcessRunning(app_name)) {
+
+        if (!isProcessRunning(checkName)) {
             DestroyWindow(hWnd);
         } else {
             clientClosed = 0;
         }
     }
+    break;
 
     default:
         return DefWindowProc(hWnd, message, wParam, lParam);
@@ -252,7 +329,7 @@ int CALLBACK WinMain(_In_ HINSTANCE hInstance, _In_ HINSTANCE hPrevInstance, _In
     HINSTANCE tibia = ShellExecuteA(NULL, "open", app_name.c_str(), NULL, NULL, SW_SHOWNORMAL);
     if (tibia <= (HINSTANCE)32) {
         MessageBox(NULL, (std::string("Error, can't launch: ") + app_name).c_str(), "Error", 0);
-        s.terminate();
+        proxyClientServer.terminate();
         return 0;
     }
 
@@ -266,16 +343,22 @@ int CALLBACK WinMain(_In_ HINSTANCE hInstance, _In_ HINSTANCE hPrevInstance, _In
         return 0;
     }
 
+    Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+    ULONG_PTR gdiplusToken;
+    Gdiplus::GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+
     RECT DesktopRect;
     GetWindowRect(GetDesktopWindow(), &DesktopRect);
 
-    hbitmap = LoadBitmapA(hInstance, MAKEINTRESOURCE(IDB_BITMAP1));
-    if (!hbitmap) {
-        return error("Can't load logo");
+    g_logoImage = LoadPNGFromResource(hInstance, IDB_PNG1);
+    if (!g_logoImage || g_logoImage->GetLastStatus() != Gdiplus::Ok) {
+        return error("Can't load logo PNG");
     }
 
-    GetObject(hbitmap, sizeof(BITMAP), &bitmap);
-    if(bitmap.bmWidth < 10 || bitmap.bmHeight < 10 || bitmap.bmWidth > 1000 || bitmap.bmHeight > 1000) {
+    int imgWidth = g_logoImage->GetWidth();
+    int imgHeight = g_logoImage->GetHeight();
+
+    if (imgWidth < 10 || imgHeight < 10 || imgWidth > 1100 || imgHeight > 1100) {
         return error("Invalid logo size");
     }
 
@@ -287,19 +370,16 @@ int CALLBACK WinMain(_In_ HINSTANCE hInstance, _In_ HINSTANCE hPrevInstance, _In
         return error("Can't register window class");
     }
 
-    HWND hWnd = CreateWindowExA(0, WND_CLASSNAME, "OTClientV8 Proxy",
+    HWND hWnd = CreateWindowExA(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST, WND_CLASSNAME, "OTClientV8 Proxy",
                                 WS_POPUP,
-                                (DesktopRect.right - bitmap.bmWidth) / 2,
-                                (DesktopRect.bottom - bitmap.bmHeight) / 2,
-                                bitmap.bmWidth,
-                                bitmap.bmHeight,
+                                (DesktopRect.right - imgWidth) / 2,
+                                (DesktopRect.bottom - imgHeight) / 2,
+                                imgWidth,
+                                imgHeight,
                                 NULL, NULL, hInstance, NULL);
     if (!hWnd) {
         return error("Can't create program window");
     }
-
-    SetWindowLong(hWnd, GWL_EXSTYLE, GetWindowLong(hWnd, GWL_EXSTYLE) | WS_EX_LAYERED | WS_EX_TOOLWINDOW);
-    SetLayeredWindowAttributes(hWnd, RGB(0, 0, 0), 0, LWA_COLORKEY);
 
     ShowWindow(hWnd, SW_SHOW);
     UpdateWindow(hWnd);
@@ -318,7 +398,9 @@ int CALLBACK WinMain(_In_ HINSTANCE hInstance, _In_ HINSTANCE hPrevInstance, _In
     ::ReleaseMutex(hMutexOneInstance);
     ::CloseHandle(hMutexOneInstance);
 
-    s.terminate();
+    Gdiplus::GdiplusShutdown(gdiplusToken);
+
+    proxyClientServer.terminate();
     return 0;
 }
 #endif
@@ -334,7 +416,7 @@ extern "C" BOOL WINAPI DllMain(HINSTANCE const instance, DWORD const reason, LPV
         break;
 
     case DLL_PROCESS_DETACH:
-        s.terminate();
+        proxyClientServer.terminate();
         break;
     }
     return TRUE;

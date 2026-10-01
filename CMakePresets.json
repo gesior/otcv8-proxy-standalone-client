@@ -1,0 +1,49 @@
+{
+    "version": 6,
+    "configurePresets": [
+        {
+            "name": "windows-x86-release",
+            "displayName": "Windows x86 Release",
+            "description": "Release build for Windows x86 (32-bit)",
+            "generator": "Visual Studio 17 2022",
+            "architecture": "Win32",
+            "binaryDir": "${sourceDir}/build/",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_TOOLCHAIN_FILE": {
+                    "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                    "type": "FILEPATH"
+                },
+                "VCPKG_TARGET_TRIPLET": "x86-windows-static"
+            }
+        },
+        {
+            "name": "windows-x86-debug",
+            "displayName": "Windows x86 Debug",
+            "description": "Debug build for Windows x86 (32-bit)",
+            "generator": "Visual Studio 17 2022",
+            "architecture": "Win32",
+            "binaryDir": "${sourceDir}/build/",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_TOOLCHAIN_FILE": {
+                    "value": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                    "type": "FILEPATH"
+                },
+                "VCPKG_TARGET_TRIPLET": "x86-windows-static"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "windows-x86-release",
+            "configurePreset": "windows-x86-release",
+            "configuration": "Release"
+        },
+        {
+            "name": "windows-x86-debug",
+            "configurePreset": "windows-x86-debug",
+            "configuration": "Debug"
+        }
+    ]
+}

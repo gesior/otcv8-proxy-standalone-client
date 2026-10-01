@@ -46,10 +46,10 @@ END
 
 /////////////////////////////////////////////////////////////////////////////
 //
-// Bitmap
+// Logo
 //
 
-IDB_BITMAP1             BITMAP                  "logo.bmp"
+IDB_PNG1                RCDATA                  "logo.png"
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -59,7 +59,7 @@ IDB_BITMAP1             BITMAP                  "logo.bmp"
 
 // Icon with lowest ID value placed first to ensure application icon
 // remains consistent on all systems.
-IDI_ICON1               ICON                    "tibia.ico"
+IDI_ICON1               ICON                    "icon.ico"
 
 #endif    // English (United Kingdom) resources
 /////////////////////////////////////////////////////////////////////////////

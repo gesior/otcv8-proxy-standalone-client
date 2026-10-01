@@ -2,7 +2,7 @@
 // Microsoft Visual C++ generated include file.
 // Used by ProxyClient.rc
 //
-#define IDB_BITMAP1                     101
+#define IDB_PNG1                        101
 #define IDI_ICON1                       102
 
 // Next default values for new objects

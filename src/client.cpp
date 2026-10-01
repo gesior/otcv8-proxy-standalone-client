@@ -80,7 +80,7 @@ void Proxy::check(const boost::system::error_code& ec)
             ping();
         }
     }
-    m_timer.expires_from_now(std::chrono::milliseconds(CHECK_INTERVAL));
+    m_timer.expires_after(std::chrono::milliseconds(CHECK_INTERVAL));
     m_timer.async_wait(std::bind(&Proxy::check, shared_from_this(), std::placeholders::_1));
 }
 
@@ -112,7 +112,7 @@ void Proxy::connect()
             endpoint = boost::asio::ip::tcp::endpoint(address, self->m_port);
         }
         else {
-            endpoint = boost::asio::ip::tcp::endpoint(*results);
+            endpoint = *results.begin();
             endpoint.port(self->m_port);
         }
         self->m_resolvedIp = endpoint.address().to_string();
@@ -383,7 +383,7 @@ void Session::check(const boost::system::error_code& ec)
 
     selectProxies();
 
-    m_timer.expires_from_now(std::chrono::milliseconds(CHECK_INTERVAL));
+    m_timer.expires_after(std::chrono::milliseconds(CHECK_INTERVAL));
     m_timer.async_wait(std::bind(&Session::check, shared_from_this(), std::placeholders::_1));
 }
 
