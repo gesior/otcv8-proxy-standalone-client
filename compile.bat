@@ -1,0 +1,3 @@
+C:\MinGW\bin\windres resource.rc -O coff -o resource.rs 
+C:\MinGW\bin\g++ main.cpp server.cpp client.cpp rsa.cpp resource.rs -o launcher.exe -IC:\MinGW\boost -LC:\boost_source\stage\lib -std=c++17 -Os -s -mwindows -static -static-libgcc -static-libstdc++ -lshlwapi -lwsock32 -lws2_32 -lz -lgmp -lboost_system -lpthread
+C:\MinGW\bin\g++ main.cpp server.cpp client.cpp rsa.cpp resource.rs -o proxy_debug.exe -IC:\MinGW\boost -LC:\boost_source\stage\lib -DDEBUG -std=c++17 -Os -s -g -static -static-libgcc -static-libstdc++ -lshlwapi -lwsock32 -lws2_32 -lz -lgmp -lboost_system -lpthread
